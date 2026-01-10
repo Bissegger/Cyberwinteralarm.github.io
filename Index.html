@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Schweiz Winter-Warn-Alarm</title>
+<style>
+body { font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif; background: #0f172a; color: #e5e7eb; padding: 20px; }
+h1 { font-size: 1.6rem; }
+.card { background: #020617; border-radius: 16px; padding: 16px; margin-top: 16px; box-shadow: 0 10px 25px rgba(0,0,0,.4); }
+button, select { background: #2563eb; color: white; border: none; border-radius: 12px; padding: 12px 16px; font-size: 1rem; cursor: pointer; margin-top: 10px; }
+button:disabled { background: #334155; cursor: not-allowed; }
+.status { margin-top: 10px; }
+#map { width: 100%; height: 500px; margin-top: 16px; border-radius: 12px; }
+.blink { background-color: red; animation: blink-animation 0.5s steps(2, start) infinite; }
+@keyframes blink-animation { to { visibility: hidden; } }
+</style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+</head>
+<body>
+<h1>❄️ Schweiz Winter-Warn-Alarm</h1>
+<div class="card" id="alarmCard">
+<h3>🟢🟡🟠🔴 Warn-Ampel</h3>
+<div id="warnAmpel">Status wird geprüft…</div>
+<div id="statusText" class="status">Status wird geprüft…</div>
+<div id="ovStatus" class="status">ÖV-Risiko: wird geprüft…</div>
+<button id="geoBtn">📍 Standort & Benachrichtigungen aktivieren</button>
+<button id="checkNow">🔄 Jetzt prüfen</button>
+</div>
+<div class="card">
+<h3>📍 Ort auswählen</h3>
+<select id="selectLocation">
+  <option value="">-- Wähle einen Ort --</option>
+</select>
+<div id="selectedStatus" class="status">Ort nicht ausgewählt</div>
+<div id="selectedWarnAmpel" class="status">Ampel für ausgewählten Ort wird angezeigt</div>
+<div id="selectedStartTime" class="status">Startzeit: wird geprüft…</div>
+</div>
+<div class="card">
+<h3>🗺️ Schneekarte (Heatmap)</h3>
+<div id="map"></div>
+</div>
+<audio id="alarmSound" preload="auto" volume="1.0">
+  <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=" type="audio/wav">
+</audio>
+<script>
+const LOCATIONS=[
+{name:'Ettiswil',lat:47.15,lon:8.02},
+{name:'St. Urban',lat:47.12,lon:7.99},
+{name:'Sempach',lat:47.16,lon:8.12},
+{name:'Sursee',lat:47.16,lon:8.04},
+{name:'Luzern',lat:47.05,lon:8.31},
+{name:'Emmen',lat:47.08,lon:8.30},
+{name:'Kriens',lat:47.03,lon:8.28},
+{name:'Horw',lat:47.02,lon:8.31},
+{name:'Ebikon',lat:47.08,lon:8.34},
+{name:'Willisau',lat:47.12,lon:7.99},
+{name:'Hochdorf',lat:47.17,lon:8.29},
+{name:'Malters',lat:47.04,lon:8.18},
+{name:'Wolhusen',lat:47.06,lon:8.08},
+{name:'Ruswil',lat:47.08,lon:8.13},
+{name:'Schüpfheim',lat:46.95,lon:8.02}
+];
+
+const alarmCard=document.getElementById('alarmCard');
+const warnAmpel=document.getElementById('warnAmpel');
+const statusText=document.getElementById('statusText');
+const ovStatus=document.getElementById('ovStatus');
+const selectedStatus=document.getElementById('selectedStatus');
+const selectedWarnAmpel=document.getElementById('selectedWarnAmpel');
+const selectedStartTime=document.getElementById('selectedStartTime');
+const selectLocation=document.getElementById('selectLocation');
+const geoBtn=document.getElementById('geoBtn');
+const alarmSound=document.getElementById('alarmSound');
+
+let userLocation=null;
+let userMarker=null;
+
+LOCATIONS.forEach(loc=>{
+  const option=document.createElement('option');
+  option.value=loc.name;
+  option.textContent=loc.name;
+  selectLocation.appendChild(option);
+});
+
+const map=L.map('map').setView([47.0,8.0],8);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+
+let markers=[];
+LOCATIONS.forEach(loc=>{
+  const m=L.circleMarker([loc.lat,loc.lon],{radius:10,color:'blue'}).addTo(map);
+  m.bindPopup(`${loc.name}<br>Loading...`);
+  markers.push({marker:m,loc:loc});
+});
+
+let heatLayer=L.heatLayer([],{radius:25,blur:15,maxZoom:17}).addTo(map);
+
+geoBtn.onclick=()=>{
+  if(location.protocol!=='https:'){
+    alert('⚠️ Standort & Push funktionieren nur über HTTPS.');
+    return;
+  }
+  if('geolocation' in navigator){
+    navigator.geolocation.getCurrentPosition(pos=>{
+      userLocation={lat:pos.coords.latitude,lon:pos.coords.longitude};
+      alert('✅ Standortzugriff erlaubt');
+      if(userMarker){ map.removeLayer(userMarker); }
+      userMarker=L.circleMarker([userLocation.lat,userLocation.lon],{radius:12,color:'cyan',fillColor:'cyan',fillOpacity:0.8}).addTo(map);
+      userMarker.bindPopup('📍 Dein Standort<br>Status wird geprüft…');
+      map.setView([userLocation.lat,userLocation.lon],9);
+      checkWeather();
+    },()=>alert('❌ Standortzugriff abgelehnt'));
+  }
+};
+
+async function checkWeather(){
+  statusText.textContent='Status: prüfe Wetterdaten…';
+  ovStatus.textContent='ÖV-Risiko: wird geprüft…';
+  try{
+    let heatData=[];
+    let highestLevel=0;
+
+    for(let i=0;i<markers.length;i++){
+      const loc=markers[i].loc;
+      const m=markers[i].marker;
+      const url=`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&hourly=snowfall,temperature_2m&forecast_days=2`;
+      const res=await fetch(url,{cache:'no-store'});
+      const data=await res.json();
+      if(!data || !data.hourly){ continue; }
+
+      let snowTotal=0,minTemp=99,firstSnowHour=null;
+      for(let h=0;h<24;h++){
+        let s=data.hourly.snowfall[h]||0;
+        snowTotal+=s;
+        minTemp=Math.min(minTemp,data.hourly.temperature_2m[h]||99);
+        if(!firstSnowHour && s>=1) firstSnowHour=h;
+      }
+
+      let level=0;
+      if(snowTotal>=15 && minTemp<=-2){ level=3; m.setStyle({color:'red'}); }
+      else if(snowTotal>=5 || minTemp<=0){ level=2; m.setStyle({color:'orange'}); }
+      else { level=0; m.setStyle({color:'blue'}); }
+      if(level>highestLevel) highestLevel=level;
+
+      ovStatus.textContent=(level>=2)?'ÖV-Risiko: Hohe Verspätungen / Ausfälle möglich':'ÖV-Risiko: Normalbetrieb wahrscheinlich';
+      let startTime=(firstSnowHour!==null)?`Schneefall beginnt um ${firstSnowHour}:00 Uhr`:'Keine Schneefälle in den nächsten 24h';
+      m.setPopupContent(`${loc.name}<br>Schnee: ${snowTotal.toFixed(1)}cm<br>Min Temp: ${minTemp.toFixed(1)}°C<br>${startTime}`);
+      heatData.push([loc.lat,loc.lon,snowTotal/50]);
+    }
+
+    heatLayer.setLatLngs(heatData);
+
+    switch(highestLevel){
+      case 0: warnAmpel.textContent='🟢 Geringe Gefahr'; break;
+      case 2: warnAmpel.textContent='🟠 Mittlere Gefahr'; break;
+      case 3: warnAmpel.textContent='🔴 Hohe Gefahr'; break;
+    }
+
+    if(highestLevel===3){ alarmCard.classList.add('blink'); if(alarmSound.paused){ alarmSound.currentTime=0; alarmSound.play().catch(()=>{}); } }
+    else{ alarmCard.classList.remove('blink'); alarmSound.pause(); alarmSound.currentTime=0; }
+
+    const selectedName=selectLocation.value;
+    if(selectedName){
+      const loc=LOCATIONS.find(l=>l.name===selectedName);
+      let snow=0,minT=99,firstSnowHour=null;
+      const url=`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&hourly=snowfall,temperature_2m&forecast_days=2`;
+      const res=await fetch(url,{cache:'no-store'});
+      const data=await res.json();
+      if(data && data.hourly){ for(let h=0;h<24;h++){ let s=data.hourly.snowfall[h]||0; snow+=s; minT=Math.min(minT,data.hourly.temperature_2m[h]||99); if(!firstSnowHour && s>=1) firstSnowHour=h; } }
+      let level='Keine Gefahr', ampColor='🟢';
+      if(snow>=15 && minT<=-2){ level='Extrem: Rot'; ampColor='🔴'; }
+      else if(snow>=5 || minT<=0){ level='Mittlere Gefahr: Orange'; ampColor='🟠'; }
+      selectedStatus.textContent=`${loc.name}: ${level}, Schnee: ${snow.toFixed(1)}cm, Min Temp: ${minT.toFixed(1)}°C`;
+      selectedWarnAmpel.textContent=`Warn-Ampel für ${loc.name}: ${ampColor}`;
+      selectedStartTime.textContent=(firstSnowHour!==null)?`Schneefall beginnt um ${firstSnowHour}:00 Uhr`:'Keine Schneefälle in den nächsten 24h';
+    }
+
+    if(userLocation && userMarker){
+      let nearest=null,minDist=999;
+      markers.forEach(m=>{ const d=Math.hypot(m.loc.lat-userLocation.lat,m.loc.lon-userLocation.lon); if(d<minDist){ minDist=d; nearest=m; } });
+      if(nearest){ let color=nearest.marker.options.color; let level='🟢 Geringe Gefahr'; if(color==='orange') level='🟠 Mittlere Gefahr'; if(color==='red') level='🔴 Hohe Gefahr'; userMarker.setPopupContent(`📍 Dein Standort<br>Nächster Ort: ${nearest.loc.name}<br>${level}`); }
+    }
+
+  } catch(e){ statusText.textContent='⚠️ Fehler beim Laden der Wetterdaten'; ovStatus.textContent='⚠️ Fehler beim Laden der ÖV-Daten'; }
+}
+
+document.getElementById('checkNow').onclick=()=>{ checkWeather(); };
+selectLocation.onchange=()=>{ checkWeather(); };
+</script>
+</body>
+</html>
