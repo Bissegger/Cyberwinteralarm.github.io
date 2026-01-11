@@ -9,9 +9,13 @@
 body{font-family:system-ui;background:#0f172a;color:#e5e7eb;margin:0;padding:16px}
 h1{font-size:1.6rem}
 .card{background:#020617;border-radius:16px;padding:16px;margin-top:16px;box-shadow:0 10px 25px rgba(0,0,0,.4)}
-select,input,button{width:100%;padding:10px;border-radius:10px;border:none;margin-top:6px;font-size:1rem}
-button{background:#2563eb;color:white;font-weight:600;cursor:pointer}
+button{background:#2563eb;color:white;font-weight:600;cursor:pointer;border:none;border-radius:10px;padding:8px;margin-top:6px;font-size:1rem}
 button:disabled{background:#334155;cursor:not-allowed}
+input{width:calc(100% - 40px);padding:8px;border-radius:10px;border:none;font-size:1rem}
+.email-list{margin-top:6px}
+.email-item{display:flex;justify-content:space-between;align-items:center;background:#111827;padding:6px 10px;border-radius:8px;margin-top:4px}
+.email-item span{color:white}
+.email-item button{background:red;padding:2px 6px;border-radius:6px;font-size:0.8rem}
 .status{margin-top:8px;font-size:.95rem}
 .ampel{font-size:1.3rem;margin-top:8px}
 .green{color:#22c55e}.yellow{color:#eab308}.orange{color:#fb923c}.red{color:#ef4444}
@@ -44,7 +48,11 @@ button:disabled{background:#334155;cursor:not-allowed}
 
 <div class="card">
 <h3>📧 E-Mail-Empfänger (max. 15)</h3>
-<input id="emails" placeholder="email1@gmail.com, email2@gmail.com">
+<div style="display:flex;gap:6px;">
+<input id="emailInput" placeholder="email@gmail.com">
+<button onclick="addEmail()">➕</button>
+</div>
+<div id="emailList" class="email-list"></div>
 </div>
 
 <div class="card">
@@ -102,16 +110,33 @@ const statusEl=document.getElementById('status');
 const ovEl=document.getElementById('ov');
 const ampelEl=document.getElementById('ampel');
 const locationSelect=document.getElementById('location');
-const emailInput=document.getElementById('emails');
+const emailInput=document.getElementById('emailInput');
+const emailListEl=document.getElementById('emailList');
 const alarmSound=document.getElementById('alarmSound');
 
+let emails=JSON.parse(localStorage.getItem('emails')) || [];
 let lastEmailLevel = localStorage.getItem('lastEmailLevel') || null;
 
+function renderEmailList(){
+    emailListEl.innerHTML='';
+    emails.forEach((e,i)=>{
+        const div=document.createElement('div');
+        div.className='email-item';
+        const span=document.createElement('span');
+        span.textContent=e;
+        const btn=document.createElement('button');
+        btn.textContent='x';
+        btn.onclick=()=>{emails.splice(i,1); saveEmails(); renderEmailList();}
+        div.appendChild(span); div.appendChild(btn);
+        emailListEl.appendChild(div);
+    });
+}
+function saveEmails(){localStorage.setItem('emails',JSON.stringify(emails));}
+function addEmail(){const val=emailInput.value.trim(); if(val && emails.length<15){emails.push(val); saveEmails(); renderEmailList(); emailInput.value='';} else alert('Maximal 15 E-Mails');}
+renderEmailList();
+
 LOCATIONS.forEach(loc=>{ 
-    const opt=document.createElement('option'); 
-    opt.value=loc.name; 
-    opt.textContent=loc.name; 
-    locationSelect.appendChild(opt); 
+    const opt=document.createElement('option'); opt.value=loc.name; opt.textContent=loc.name; locationSelect.appendChild(opt); 
 });
 
 const map=L.map('map').setView([47.05,8.15],10);
@@ -147,17 +172,22 @@ function updateAmpel(level){
     if(level==='red') ampelEl.textContent='🔴 ROT – EXTREME Gefahr';
 }
 
-function sendEmails(level){
-    const emails=emailInput.value.split(',').map(e=>e.trim()).filter(e=>e).slice(0,15);
-    if(emails.length===0) return;
+function sendEmails(level,start='Morgen 06:30',peak='09:00',end='13:00'){
     if(level===lastEmailLevel) return; 
-    lastEmailLevel = level;
+    lastEmailLevel = level; 
     localStorage.setItem('lastEmailLevel', level);
     emails.forEach(email=>{
         fetch(SCRIPT_URL,{
             method:'POST',
             headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({level:level,location:locationSelect.value,email:email})
+            body:JSON.stringify({
+                level:level,
+                location:locationSelect.value,
+                email:email,
+                start:start,
+                peak:peak,
+                end:end
+            })
         }).catch(e=>console.log('Fehler beim Senden:',e));
     });
 }
@@ -182,7 +212,6 @@ async function checkWeather(){
             if(locationSelect.value===loc.name) updateAmpel(color);
         }
         heatLayer.setLatLngs(heatData);
-
         indexEl.textContent='Winter-Index geprüft'; trendEl.textContent='🔮 Prognose aktiv (Heute & Morgen)';
         todayEl.textContent='📅 Heute: Wetterdaten analysiert'; tomorrowEl.textContent='📅 Morgen: Frühwarnung aktiv';
         countdownEl.textContent='⏳ Prognosezeitraum: Heute + Morgen'; kantonEl.textContent='ℹ️ Kanton Luzern: Übersicht aktuell';
