@@ -4,20 +4,24 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>❄️ Winterwarn-App Schweiz</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
 <style>
 body{font-family:system-ui;background:#0f172a;color:#e5e7eb;margin:0;padding:16px}
 h1{font-size:1.4rem}
 .card{background:#020617;border-radius:14px;padding:14px;margin-top:14px}
 select,input,button{width:100%;padding:10px;border-radius:10px;border:none;margin-top:6px;font-size:1rem}
 button{background:#2563eb;color:white;font-weight:600}
-button.test{background:#f59e0b;color:black}
+button.test{background:#f59e0b;color:black;margin-top:6px}
 .status{margin-top:8px;font-size:.95rem}
 .ampel{font-size:1.3rem;margin-top:8px}
 .green{color:#22c55e}.yellow{color:#eab308}.orange{color:#fb923c}.red{color:#ef4444}
+#map{width:100%;height:300px;margin-top:14px;border-radius:12px}
+.legend{background:rgba(0,0,0,0.7);padding:6px 10px;border-radius:8px;color:white;line-height:1.4;margin-top:10px}
+.legend div{display:flex;align-items:center;margin-bottom:4px}
+.legend span{display:inline-block;width:16px;height:16px;margin-right:6px;border-radius:4px}
 </style>
 </head>
 <body>
-
 <h1>❄️ Winterwarn-App Schweiz</h1>
 
 <div class="card">
@@ -46,19 +50,89 @@ button.test{background:#f59e0b;color:black}
 <div id="status" class="status"></div>
 </div>
 
+<div class="card">
+<h3>🗺️ Schneekarte Schweiz</h3>
+<div id="map"></div>
+<div class="legend">
+<div><span style="background:green"></span>Geringe Gefahr</div>
+<div><span style="background:yellow"></span>Erhöhte Gefahr</div>
+<div><span style="background:orange"></span>Hohe Gefahr</div>
+<div><span style="background:red"></span>Sehr hohe Gefahr</div>
+</div>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
 <script>
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxETt5pEIsHFU19u2IL1ouZ_crteiaepipClCflXxjDhDUEvYH_-BaJFBAJQCntdZy_/exec";
+const SCRIPT_URL="https://script.google.com/macros/s/AKfycbxETt5pEIsHFU19u2IL1ouZ_crteiaepipClCflXxjDhDUEvYH_-BaJFBAJQCntdZy_/exec";
+const LOCATIONS=[
+{name:'St. Urban',lat:46.984,lon:7.906},
+{name:'Ettiswil',lat:47.143,lon:7.965},
+{name:'Sursee',lat:47.147,lon:8.110},
+{name:'Luzern',lat:47.050,lon:8.308},
+{name:'Willisau',lat:47.163,lon:7.931}
+];
+
+const ampelEl=document.getElementById('ampel');
+const statusEl=document.getElementById('status');
+const locationSelect=document.getElementById('location');
+const emailInput=document.getElementById('emails');
+
+const map=L.map('map').setView([47.05,8.3],9);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+let markers=[];
+LOCATIONS.forEach(loc=>{
+    const m=L.circleMarker([loc.lat,loc.lon],{radius:10,color:'blue'}).addTo(map);
+    m.bindPopup(`${loc.name}<br>Lädt…`);
+    markers.push({marker:m,loc:loc});
+});
+let heatLayer=L.heatLayer([],{radius:25,blur:15,maxZoom:17}).addTo(map);
+
+// Marker für aktuellen Standort
+let userMarker=null;
+navigator.geolocation.getCurrentPosition(pos=>{
+  const lat=pos.coords.latitude;
+  const lon=pos.coords.longitude;
+  if(userMarker) map.removeLayer(userMarker);
+  userMarker=L.marker([lat,lon],{title:'Mein Standort'}).addTo(map);
+  map.setView([lat,lon],10);
+  userMarker.bindPopup('Du bist hier').openPopup();
+},err=>console.log('Kein Standort',err));
+
+async function updateWeather(){
+  let heatData=[];
+  for(let i=0;i<markers.length;i++){
+    const loc=markers[i].loc;
+    const m=markers[i].marker;
+    try{
+      const res=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&hourly=snowfall,temperature_2m&forecast_days=1`);
+      const data=await res.json();
+      let snow=0,minTemp=99;
+      for(let h=0;h<24;h++){snow+=data.hourly.snowfall[h]||0;minTemp=Math.min(minTemp,data.hourly.temperature_2m[h]||99);}
+      let index=0;index+=Math.min(snow*2,40);if(minTemp<=0)index+=20;
+      let color='green';if(index>=30&&index<60)color='yellow';if(index>=60&&index<80)color='orange';if(index>=80)color='red';
+      m.setStyle({color:color});
+      m.setPopupContent(`${loc.name}<br>Schnee: ${snow.toFixed(1)}cm<br>Temp: ${minTemp.toFixed(1)}°C<br>Gefahr: ${color.toUpperCase()}`);
+      heatData.push([loc.lat,loc.lon,index/100]);
+      if(locationSelect.value===loc.name) updateAmpel(color);
+    }catch(e){console.log('Fehler bei',loc.name,e);}
+  }
+  heatLayer.setLatLngs(heatData);
+}
+
+function updateAmpel(level){
+  ampelEl.className='ampel '+level;
+  if(level==='green') ampelEl.textContent='🟢 GRÜN – keine Gefahr';
+  if(level==='yellow') ampelEl.textContent='🟡 GELB – erhöhte Gefahr';
+  if(level==='orange') ampelEl.textContent='🟠 ORANGE – starke Gefahr';
+  if(level==='red') ampelEl.textContent='🔴 ROT – EXTREME Gefahr';
+}
 
 function sendTest(level){
-  const emails = document.getElementById('emails').value
-    .split(',').map(e=>e.trim()).filter(e=>e);
-
+  const emails=emailInput.value.split(',').map(e=>e.trim()).filter(e=>e);
   if(emails.length===0){alert('Bitte mindestens eine E-Mail eingeben');return;}
-
-  const location=document.getElementById('location').value;
-
+  const location=locationSelect.value;
   updateAmpel(level);
-
   fetch(SCRIPT_URL,{
     method:'POST',
     headers:{'Content-Type':'application/json'},
@@ -75,21 +149,11 @@ function sendTest(level){
       school: level==='green'?'unproblematisch':'gefährlich',
       emails:emails
     })
-  })
-  .then(r=>r.text())
-  .then(t=>document.getElementById('status').textContent='Server: '+t)
-  .catch(e=>document.getElementById('status').textContent='Fehler: '+e);
+  }).then(r=>r.text()).then(t=>statusEl.textContent='Server: '+t).catch(e=>statusEl.textContent='Fehler: '+e);
 }
 
-function updateAmpel(level){
-  const el=document.getElementById('ampel');
-  el.className='ampel '+level;
-  if(level==='green')el.textContent='🟢 GRÜN – keine Gefahr';
-  if(level==='yellow')el.textContent='🟡 GELB – erhöhte Gefahr';
-  if(level==='orange')el.textContent='🟠 ORANGE – starke Gefahr';
-  if(level==='red')el.textContent='🔴 ROT – EXTREME Gefahr';
-}
+updateWeather();
+setInterval(updateWeather,60*1000);
 </script>
-
 </body>
 </html>
