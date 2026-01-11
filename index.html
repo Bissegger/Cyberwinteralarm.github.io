@@ -1,4 +1,4 @@
-    <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -43,6 +43,11 @@ button:disabled{background:#334155;cursor:not-allowed}
 </div>
 
 <div class="card">
+<h3>📧 E-Mail-Empfänger (max. 15)</h3>
+<input id="emails" placeholder="email1@gmail.com, email2@gmail.com">
+</div>
+
+<div class="card">
 <h3>🚆 ÖV-Risiko</h3>
 <div id="ov">–</div>
 </div>
@@ -65,6 +70,8 @@ button:disabled{background:#334155;cursor:not-allowed}
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
 <script>
+const SCRIPT_URL="https://script.google.com/macros/s/DEIN_SCRIPT_URL/exec";
+
 const LOCATIONS=[
 {name:'Ettiswil',lat:47.15,lon:8.02},
 {name:'Luzern',lat:47.05,lon:8.31},
@@ -95,76 +102,108 @@ const statusEl=document.getElementById('status');
 const ovEl=document.getElementById('ov');
 const ampelEl=document.getElementById('ampel');
 const locationSelect=document.getElementById('location');
+const emailInput=document.getElementById('emails');
 const alarmSound=document.getElementById('alarmSound');
 
-// Fill select with locations
-LOCATIONS.forEach(loc=>{ const opt=document.createElement('option'); opt.value=loc.name; opt.textContent=loc.name; locationSelect.appendChild(opt); });
+let lastEmailLevel = localStorage.getItem('lastEmailLevel') || null;
+
+LOCATIONS.forEach(loc=>{ 
+    const opt=document.createElement('option'); 
+    opt.value=loc.name; 
+    opt.textContent=loc.name; 
+    locationSelect.appendChild(opt); 
+});
 
 const map=L.map('map').setView([47.05,8.15],10);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
 
 let markers=[];
-LOCATIONS.forEach(loc=>{const m=L.circleMarker([loc.lat,loc.lon],{radius:10,color:'blue'}).addTo(map); m.bindPopup(`${loc.name}<br>Lädt…`); markers.push({marker:m,loc:loc});});
+LOCATIONS.forEach(loc=>{
+    const m=L.circleMarker([loc.lat,loc.lon],{radius:10,color:'blue'}).addTo(map);
+    m.bindPopup(`${loc.name}<br>Lädt…`);
+    markers.push({marker:m,loc:loc});
+});
 let heatLayer=L.heatLayer([],{radius:25,blur:15,maxZoom:17}).addTo(map);
 let userMarker=null;
 
 function requestLocation(){
-  if(navigator.geolocation){
-    navigator.geolocation.getCurrentPosition(pos=>{
-      const lat=pos.coords.latitude; const lon=pos.coords.longitude;
-      if(userMarker) map.removeLayer(userMarker);
-      userMarker=L.marker([lat,lon],{title:'Mein Standort'}).addTo(map);
-      map.setView([lat,lon],10);
-      userMarker.bindPopup('Du bist hier').openPopup();
-      statusEl.textContent='Standort aktiviert';
-    },err=>statusEl.textContent='Kein Standortzugriff');
-  } else statusEl.textContent='Geolocation nicht unterstützt';
-}
-
-async function checkWeather(){
-  statusEl.textContent='Status: prüfe Wetterdaten…';
-  try{
-    let heatData=[]; let alarmActive=false;
-    for(let i=0;i<markers.length;i++){
-      const loc=markers[i].loc; const m=markers[i].marker;
-      const url=`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&hourly=snowfall,temperature_2m,windgusts_10m&forecast_days=3`;
-      const res=await fetch(url,{cache:'no-store'});
-      const data=await res.json(); if(!data||!data.hourly) continue;
-      let snow=0,wind=0,minTemp=99;
-      for(let h=0;h<48;h++){ snow+=data.hourly.snowfall[h]||0; wind=Math.max(wind,data.hourly.windgusts_10m[h]||0); minTemp=Math.min(minTemp,data.hourly.temperature_2m[h]||99); }
-      let color='green';
-      if(snow>=20 && wind>=50 && minTemp<=0){ color='red'; alarmActive=true; } else if(snow>=10 || minTemp<=-2){ color='orange'; } else if(snow>=5){ color='yellow'; }
-      m.setStyle({color:color});
-      m.setPopupContent(`${loc.name}<br>Schnee: ${snow.toFixed(1)}cm<br>Wind: ${wind.toFixed(1)} km/h<br>Temp: ${minTemp.toFixed(1)}°C`);
-      heatData.push([loc.lat,loc.lon,snow/50]);
-      if(locationSelect.value===loc.name) updateAmpel(color);
-    }
-    heatLayer.setLatLngs(heatData);
-    indexEl.textContent='Winter-Index geprüft';
-    trendEl.textContent='🔮 Prognose aktiv (Heute & Morgen)';
-    todayEl.textContent='📅 Heute: Wetterdaten analysiert';
-    tomorrowEl.textContent='📅 Morgen: Frühwarnung aktiv';
-    countdownEl.textContent='⏳ Prognosezeitraum: Heute + Morgen';
-    kantonEl.textContent='ℹ️ Kanton Luzern: Übersicht aktuell';
-    schoolEl.textContent='🏫 Schule: Normalbetrieb';
-    ovEl.textContent='🟢 ÖV: Normalbetrieb';
-    statusEl.textContent='Status: letzte Prüfung erfolgreich';
-    return alarmActive;
-  } catch(e){ statusEl.textContent='⚠️ Fehler beim Laden der Wetterdaten'; return false; }
+    if(navigator.geolocation){
+        navigator.geolocation.getCurrentPosition(pos=>{
+            const lat=pos.coords.latitude; const lon=pos.coords.longitude;
+            if(userMarker) map.removeLayer(userMarker);
+            userMarker=L.marker([lat,lon],{title:'Mein Standort'}).addTo(map);
+            map.setView([lat,lon],10);
+            userMarker.bindPopup('Du bist hier').openPopup();
+            statusEl.textContent='Standort aktiviert';
+        },err=>statusEl.textContent='Kein Standortzugriff');
+    } else statusEl.textContent='Geolocation nicht unterstützt';
 }
 
 function updateAmpel(level){
-  ampelEl.className='ampel '+level;
-  if(level==='green') ampelEl.textContent='🟢 GRÜN – keine Gefahr';
-  if(level==='yellow') ampelEl.textContent='🟡 GELB – erhöhte Gefahr';
-  if(level==='orange') ampelEl.textContent='🟠 ORANGE – starke Gefahr';
-  if(level==='red') ampelEl.textContent='🔴 ROT – EXTREME Gefahr';
+    ampelEl.className='ampel '+level;
+    if(level==='green') ampelEl.textContent='🟢 GRÜN – keine Gefahr';
+    if(level==='yellow') ampelEl.textContent='🟡 GELB – erhöhte Gefahr';
+    if(level==='orange') ampelEl.textContent='🟠 ORANGE – starke Gefahr';
+    if(level==='red') ampelEl.textContent='🔴 ROT – EXTREME Gefahr';
+}
+
+function sendEmails(level){
+    const emails=emailInput.value.split(',').map(e=>e.trim()).filter(e=>e).slice(0,15);
+    if(emails.length===0) return;
+    if(level===lastEmailLevel) return; 
+    lastEmailLevel = level;
+    localStorage.setItem('lastEmailLevel', level);
+    emails.forEach(email=>{
+        fetch(SCRIPT_URL,{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({level:level,location:locationSelect.value,email:email})
+        }).catch(e=>console.log('Fehler beim Senden:',e));
+    });
+}
+
+async function checkWeather(){
+    statusEl.textContent='Status: prüfe Wetterdaten…';
+    try{
+        let heatData=[]; let alarmActive=false;
+        for(let i=0;i<markers.length;i++){
+            const loc=markers[i].loc; const m=markers[i].marker;
+            const url=`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&hourly=snowfall,temperature_2m,windgusts_10m&forecast_days=3`;
+            const res=await fetch(url,{cache:'no-store'}); const data=await res.json(); if(!data||!data.hourly) continue;
+            let snow=0,wind=0,minTemp=99;
+            for(let h=0;h<48;h++){ snow+=data.hourly.snowfall[h]||0; wind=Math.max(wind,data.hourly.windgusts_10m[h]||0); minTemp=Math.min(minTemp,data.hourly.temperature_2m[h]||99); }
+            let color='green'; 
+            if(snow>=20 && wind>=50 && minTemp<=0){ color='red'; alarmActive=true; }
+            else if(snow>=10 || minTemp<=-2){ color='orange'; }
+            else if(snow>=5){ color='yellow'; }
+            m.setStyle({color:color}); 
+            m.setPopupContent(`${loc.name}<br>Schnee: ${snow.toFixed(1)}cm<br>Wind: ${wind.toFixed(1)} km/h<br>Temp: ${minTemp.toFixed(1)}°C`);
+            heatData.push([loc.lat,loc.lon,snow/50]);
+            if(locationSelect.value===loc.name) updateAmpel(color);
+        }
+        heatLayer.setLatLngs(heatData);
+
+        indexEl.textContent='Winter-Index geprüft'; trendEl.textContent='🔮 Prognose aktiv (Heute & Morgen)';
+        todayEl.textContent='📅 Heute: Wetterdaten analysiert'; tomorrowEl.textContent='📅 Morgen: Frühwarnung aktiv';
+        countdownEl.textContent='⏳ Prognosezeitraum: Heute + Morgen'; kantonEl.textContent='ℹ️ Kanton Luzern: Übersicht aktuell';
+        schoolEl.textContent='🏫 Schule: Normalbetrieb'; ovEl.textContent='🟢 ÖV: Normalbetrieb';
+        statusEl.textContent='Status: letzte Prüfung erfolgreich';
+        return alarmActive;
+    } catch(e){ statusEl.textContent='⚠️ Fehler beim Laden der Wetterdaten'; return false; }
 }
 
 document.getElementById('checkNow').onclick=async ()=>{
-  const alarm=await checkWeather();
-  if(alarm){ alarmCard.classList.add('blink'); if(alarmSound.paused){ alarmSound.currentTime=0; alarmSound.volume=1.0; alarmSound.play().catch(()=>{}); } }
-  else { alarmCard.classList.remove('blink'); alarmSound.pause(); alarmSound.currentTime=0; }
+    const alarm=await checkWeather();
+    if(alarm){ 
+        alarmCard.classList.add('blink'); 
+        if(alarmSound.paused){ alarmSound.currentTime=0; alarmSound.volume=1.0; alarmSound.play().catch(()=>{}); }
+        sendEmails('red'); 
+    } else { 
+        alarmCard.classList.remove('blink'); 
+        alarmSound.pause(); 
+        alarmSound.currentTime=0; 
+        sendEmails('green'); 
+    }
 };
 
 checkWeather();
