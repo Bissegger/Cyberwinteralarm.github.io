@@ -9,22 +9,15 @@
 body{font-family:system-ui;background:#0f172a;color:#e5e7eb;margin:0;padding:16px}
 h1{font-size:1.6rem}
 .card{background:#020617;border-radius:16px;padding:16px;margin-top:16px;box-shadow:0 10px 25px rgba(0,0,0,.4)}
-button{background:#2563eb;color:white;font-weight:600;cursor:pointer;border:none;border-radius:10px;padding:8px;margin-top:6px;font-size:1rem}
+select,input,button{width:100%;padding:10px;border-radius:10px;border:none;margin-top:6px;font-size:1rem}
+button{background:#2563eb;color:white;font-weight:600;cursor:pointer}
 button:disabled{background:#334155;cursor:not-allowed}
-input{width:calc(100% - 40px);padding:8px;border-radius:10px;border:none;font-size:1rem}
-.email-list{margin-top:6px}
-.email-item{display:flex;justify-content:space-between;align-items:center;background:#111827;padding:6px 10px;border-radius:8px;margin-top:4px}
-.email-item span{color:white}
-.email-item button{background:red;padding:2px 6px;border-radius:6px;font-size:0.8rem}
 .status{margin-top:8px;font-size:.95rem}
 .ampel{font-size:1.3rem;margin-top:8px}
 .green{color:#22c55e}.yellow{color:#eab308}.orange{color:#fb923c}.red{color:#ef4444}
 #map{width:100%;height:300px;margin-top:14px;border-radius:12px}
 .blink{background-color:red;animation:blink-animation 0.5s steps(2,start) infinite}
 @keyframes blink-animation{to{visibility:hidden}}
-.legend{background:rgba(0,0,0,0.7);padding:6px 10px;border-radius:8px;color:white;line-height:1.4;margin-top:10px}
-.legend div{display:flex;align-items:center;margin-bottom:4px}
-.legend span{display:inline-block;width:16px;height:16px;margin-right:6px;border-radius:4px}
 </style>
 </head>
 <body>
@@ -48,11 +41,7 @@ input{width:calc(100% - 40px);padding:8px;border-radius:10px;border:none;font-si
 
 <div class="card">
 <h3>📧 E-Mail-Empfänger (max. 15)</h3>
-<div style="display:flex;gap:6px;">
-<input id="emailInput" placeholder="email@gmail.com">
-<button onclick="addEmail()">➕</button>
-</div>
-<div id="emailList" class="email-list"></div>
+<input id="emails" placeholder="email1@gmail.com, email2@gmail.com">
 </div>
 
 <div class="card">
@@ -61,24 +50,19 @@ input{width:calc(100% - 40px);padding:8px;border-radius:10px;border:none;font-si
 </div>
 
 <div class="card">
-<h3>🗺️ Schneekarte Schweiz (Heatmap)</h3>
+<h3>🗺️ Schneekarte Schweiz</h3>
 <div id="map"></div>
-<div class="legend">
-<div><span style="background:green"></span>Geringe Gefahr</div>
-<div><span style="background:yellow"></span>Erhöhte Gefahr</div>
-<div><span style="background:orange"></span>Hohe Gefahr</div>
-<div><span style="background:red"></span>Sehr hohe Gefahr</div>
-</div>
 </div>
 
-<audio id="alarmSound" preload="auto" volume="1.0">
+<audio id="alarmSound" preload="auto">
   <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=" type="audio/wav">
 </audio>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
 <script>
-const SCRIPT_URL="https://script.google.com/macros/s/DEIN_SCRIPT_URL/exec";
+const SCRIPT_URL="https://script.google.com/macros/s/AKfycbxETt5pEIsHFU19u2IL1ouZ_crteiaepipClCflXxjDhDUEvYH_-BaJFBAJQCntdZy_/exec";
+let initialMailSent=false;
 
 const LOCATIONS=[
 {name:'Ettiswil',lat:47.15,lon:8.02},
@@ -86,153 +70,83 @@ const LOCATIONS=[
 {name:'Sursee',lat:47.16,lon:8.04},
 {name:'Sempach',lat:47.16,lon:8.12},
 {name:'St. Urban',lat:47.12,lon:7.99},
-{name:'Emmen',lat:47.08,lon:8.30},
-{name:'Kriens',lat:47.03,lon:8.28},
-{name:'Horw',lat:47.02,lon:8.31},
-{name:'Ebikon',lat:47.08,lon:8.34},
-{name:'Willisau',lat:47.12,lon:7.99},
-{name:'Hochdorf',lat:47.17,lon:8.29},
-{name:'Malters',lat:47.04,lon:8.18},
-{name:'Wolhusen',lat:47.06,lon:8.08},
-{name:'Ruswil',lat:47.08,lon:8.13},
-{name:'Schüpfheim',lat:46.95,lon:8.02}
+{name:'Emmen',lat:47.08,lon:8.30}
 ];
 
-const alarmCard=document.getElementById('alarmCard');
-const indexEl=document.getElementById('index');
-const trendEl=document.getElementById('trend');
-const todayEl=document.getElementById('today');
-const tomorrowEl=document.getElementById('tomorrow');
-const countdownEl=document.getElementById('countdown');
-const kantonEl=document.getElementById('kanton');
-const schoolEl=document.getElementById('school');
-const statusEl=document.getElementById('status');
-const ovEl=document.getElementById('ov');
-const ampelEl=document.getElementById('ampel');
 const locationSelect=document.getElementById('location');
-const emailInput=document.getElementById('emailInput');
-const emailListEl=document.getElementById('emailList');
+LOCATIONS.forEach(l=>{let o=document.createElement('option');o.value=l.name;o.textContent=l.name;locationSelect.appendChild(o);});
+
+const ampelEl=document.getElementById('ampel');
+const ovEl=document.getElementById('ov');
+const emailInput=document.getElementById('emails');
+const alarmCard=document.getElementById('alarmCard');
 const alarmSound=document.getElementById('alarmSound');
 
-let emails=JSON.parse(localStorage.getItem('emails')) || [];
-let lastEmailLevel = localStorage.getItem('lastEmailLevel') || null;
-
-function renderEmailList(){
-    emailListEl.innerHTML='';
-    emails.forEach((e,i)=>{
-        const div=document.createElement('div');
-        div.className='email-item';
-        const span=document.createElement('span');
-        span.textContent=e;
-        const btn=document.createElement('button');
-        btn.textContent='x';
-        btn.onclick=()=>{emails.splice(i,1); saveEmails(); renderEmailList();}
-        div.appendChild(span); div.appendChild(btn);
-        emailListEl.appendChild(div);
-    });
-}
-function saveEmails(){localStorage.setItem('emails',JSON.stringify(emails));}
-function addEmail(){const val=emailInput.value.trim(); if(val && emails.length<15){emails.push(val); saveEmails(); renderEmailList(); emailInput.value='';} else alert('Maximal 15 E-Mails');}
-renderEmailList();
-
-LOCATIONS.forEach(loc=>{ 
-    const opt=document.createElement('option'); opt.value=loc.name; opt.textContent=loc.name; locationSelect.appendChild(opt); 
-});
-
-const map=L.map('map').setView([47.05,8.15],10);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
-
+const map=L.map('map').setView([47.05,8.15],9);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+let heatLayer=L.heatLayer([],{radius:25}).addTo(map);
 let markers=[];
-LOCATIONS.forEach(loc=>{
-    const m=L.circleMarker([loc.lat,loc.lon],{radius:10,color:'blue'}).addTo(map);
-    m.bindPopup(`${loc.name}<br>Lädt…`);
-    markers.push({marker:m,loc:loc});
-});
-let heatLayer=L.heatLayer([],{radius:25,blur:15,maxZoom:17}).addTo(map);
-let userMarker=null;
-
-function requestLocation(){
-    if(navigator.geolocation){
-        navigator.geolocation.getCurrentPosition(pos=>{
-            const lat=pos.coords.latitude; const lon=pos.coords.longitude;
-            if(userMarker) map.removeLayer(userMarker);
-            userMarker=L.marker([lat,lon],{title:'Mein Standort'}).addTo(map);
-            map.setView([lat,lon],10);
-            userMarker.bindPopup('Du bist hier').openPopup();
-            statusEl.textContent='Standort aktiviert';
-        },err=>statusEl.textContent='Kein Standortzugriff');
-    } else statusEl.textContent='Geolocation nicht unterstützt';
-}
+LOCATIONS.forEach(l=>{let m=L.circleMarker([l.lat,l.lon],{radius:8,color:'blue'}).addTo(map);markers.push({m,l});});
 
 function updateAmpel(level){
-    ampelEl.className='ampel '+level;
-    if(level==='green') ampelEl.textContent='🟢 GRÜN – keine Gefahr';
-    if(level==='yellow') ampelEl.textContent='🟡 GELB – erhöhte Gefahr';
-    if(level==='orange') ampelEl.textContent='🟠 ORANGE – starke Gefahr';
-    if(level==='red') ampelEl.textContent='🔴 ROT – EXTREME Gefahr';
-}
-
-function sendEmails(level,start='Morgen 06:30',peak='09:00',end='13:00'){
-    if(level===lastEmailLevel) return; 
-    lastEmailLevel = level; 
-    localStorage.setItem('lastEmailLevel', level);
-    emails.forEach(email=>{
-        fetch(SCRIPT_URL,{
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({
-                level:level,
-                location:locationSelect.value,
-                email:email,
-                start:start,
-                peak:peak,
-                end:end
-            })
-        }).catch(e=>console.log('Fehler beim Senden:',e));
-    });
+  ampelEl.className='ampel '+level;
+  ampelEl.textContent={green:'🟢 GRÜN',yellow:'🟡 GELB',orange:'🟠 ORANGE',red:'🔴 ROT'}[level];
 }
 
 async function checkWeather(){
-    statusEl.textContent='Status: prüfe Wetterdaten…';
-    try{
-        let heatData=[]; let alarmActive=false;
-        for(let i=0;i<markers.length;i++){
-            const loc=markers[i].loc; const m=markers[i].marker;
-            const url=`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&hourly=snowfall,temperature_2m,windgusts_10m&forecast_days=3`;
-            const res=await fetch(url,{cache:'no-store'}); const data=await res.json(); if(!data||!data.hourly) continue;
-            let snow=0,wind=0,minTemp=99;
-            for(let h=0;h<48;h++){ snow+=data.hourly.snowfall[h]||0; wind=Math.max(wind,data.hourly.windgusts_10m[h]||0); minTemp=Math.min(minTemp,data.hourly.temperature_2m[h]||99); }
-            let color='green'; 
-            if(snow>=20 && wind>=50 && minTemp<=0){ color='red'; alarmActive=true; }
-            else if(snow>=10 || minTemp<=-2){ color='orange'; }
-            else if(snow>=5){ color='yellow'; }
-            m.setStyle({color:color}); 
-            m.setPopupContent(`${loc.name}<br>Schnee: ${snow.toFixed(1)}cm<br>Wind: ${wind.toFixed(1)} km/h<br>Temp: ${minTemp.toFixed(1)}°C`);
-            heatData.push([loc.lat,loc.lon,snow/50]);
-            if(locationSelect.value===loc.name) updateAmpel(color);
-        }
-        heatLayer.setLatLngs(heatData);
-        indexEl.textContent='Winter-Index geprüft'; trendEl.textContent='🔮 Prognose aktiv (Heute & Morgen)';
-        todayEl.textContent='📅 Heute: Wetterdaten analysiert'; tomorrowEl.textContent='📅 Morgen: Frühwarnung aktiv';
-        countdownEl.textContent='⏳ Prognosezeitraum: Heute + Morgen'; kantonEl.textContent='ℹ️ Kanton Luzern: Übersicht aktuell';
-        schoolEl.textContent='🏫 Schule: Normalbetrieb'; ovEl.textContent='🟢 ÖV: Normalbetrieb';
-        statusEl.textContent='Status: letzte Prüfung erfolgreich';
-        return alarmActive;
-    } catch(e){ statusEl.textContent='⚠️ Fehler beim Laden der Wetterdaten'; return false; }
+  let worst='green';
+  let heat=[];
+  for(const obj of markers){
+    const {l,m}=obj;
+    const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${l.lat}&longitude=${l.lon}&hourly=snowfall,temperature_2m,windgusts_10m&forecast_days=2`);
+    const d=await r.json();
+    let snow=0,temp=99,wind=0;
+    for(let i=0;i<24;i++){
+      snow+=d.hourly.snowfall[i]||0;
+      temp=Math.min(temp,d.hourly.temperature_2m[i]);
+      wind=Math.max(wind,d.hourly.windgusts_10m[i]);
+    }
+    let level='green';
+    if(snow>=20&&temp<=0&&wind>=50) level='red';
+    else if(snow>=10) level='orange';
+    else if(snow>=5) level='yellow';
+    m.setStyle({color:level});
+    heat.push([l.lat,l.lon,snow/20]);
+    if(level==='red'||(level==='orange'&&worst!=='red')||(level==='yellow'&&worst==='green')) worst=level;
+    if(locationSelect.value===l.name) updateAmpel(level);
+  }
+  heatLayer.setLatLngs(heat);
+  ovEl.textContent={green:'🟢 Normal',yellow:'🟡 leichte Störungen',orange:'🟠 Verspätungen',red:'🔴 Ausfälle'}[worst];
+
+  if(!initialMailSent){
+    sendEmails(worst);
+    initialMailSent=true;
+  }
+
+  return worst;
 }
 
-document.getElementById('checkNow').onclick=async ()=>{
-    const alarm=await checkWeather();
-    if(alarm){ 
-        alarmCard.classList.add('blink'); 
-        if(alarmSound.paused){ alarmSound.currentTime=0; alarmSound.volume=1.0; alarmSound.play().catch(()=>{}); }
-        sendEmails('red'); 
-    } else { 
-        alarmCard.classList.remove('blink'); 
-        alarmSound.pause(); 
-        alarmSound.currentTime=0; 
-        sendEmails('green'); 
-    }
+function sendEmails(level){
+  const emails=emailInput.value.split(',').map(e=>e.trim()).filter(e=>e).slice(0,15);
+  if(!emails.length) return;
+  fetch(SCRIPT_URL,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      location:locationSelect.value,
+      level:level,
+      emails:emails,
+      type:'Automatische Analyse',
+      start:'Jetzt',peak:'Aktuell',end:'Nächste Stunden',
+      snow:'–',temp:'–',ov:ovEl.textContent,school:'–'
+    })
+  });
+}
+
+document.getElementById('checkNow').onclick=async()=>{
+  const lvl=await checkWeather();
+  if(lvl==='red'){alarmCard.classList.add('blink');alarmSound.play().catch(()=>{});} 
+  else{alarmCard.classList.remove('blink');alarmSound.pause();}
 };
 
 checkWeather();
